@@ -127,8 +127,38 @@ class Habit {
         this.#frequency = value;
     }
 
+    toDisplayString() {
+        return `${this.name} (${this.frequency})`;
+    }
+
     static createId() {
         return Date.now() + Math.floor(Math.random() * 1000);
+    }
+}
+
+class TimedHabit extends Habit {
+    #targetMinutes;
+
+    constructor(name, frequency, targetMinutes) {
+        super(name, frequency);
+        this.targetMinutes = targetMinutes;
+    }
+
+    get targetMinutes() {
+        return this.#targetMinutes;
+    }
+
+    set targetMinutes(value) {
+        const minutes = Number(value);
+        if (isNaN(minutes) || minutes <= 0) {
+            throw new Error('El objetivo de tiempo debe de ser un número positivo')
+        }
+        this.#targetMinutes = minutes;
+    }
+
+    toDisplayString() {
+        const baseString = super.toDisplayString();
+        return `${baseString} ${this.#targetMinutes}`;
     }
 }
 
@@ -419,6 +449,7 @@ function initApp() {
 
         const log = logHabit(habitId, date);
         if (log) {
+            const habit = habits.find((h) => h.id === habitId);
             showMessage(`Check-in registrado para ${log.habitName}`, 'success');
             renderHabits();
             closeModal('registerModal');
@@ -429,7 +460,12 @@ function initApp() {
     renderQuote();
 
     console.log('Habit Tracker inicializado');
-    console.log('Clase 1: Fundamentos de POO - Objetos literales y modelado básico');
+    const demoHabit = new Habit('Leer', 'daily');
+    const demoTimedHabit = new TimedHabit('Meditar', 'daily', 20);
+    console.log('Habit normal: ', demoHabit.toDisplayString());
+    console.log('TimedHabit: ', demoTimedHabit.toDisplayString());
+    console.log('instanceof Habit: ', demoTimedHabit instanceof Habit);
+    console.log('intanceof TimedHabit: ', demoTimedHabit instanceof TimedHabit);
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
