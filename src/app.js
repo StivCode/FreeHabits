@@ -1,8 +1,6 @@
 const MAX_HABITS = 5;
 
 const habits = [];
-const logs = [];
-let habitIdCounter = 0;
 
 const motivationalQuotes = [
     'La fuerza no viene de la capacidad. Viene de la voluntad.',
@@ -29,16 +27,109 @@ const motivationalQuotes = [
 
 let dailyQuoteText = getRandomQuote();
 
-function createHabitObject(name, frequency) {
-    return {
-        id: ++habitIdCounter,
-        name: name,
-        frequency: frequency,
-        createdAt: new Date().toISOString(),
-        rename: function (newName) {
-            this.name = newName;
-        },
-    };
+// function createHabitObject(name, frequency) {
+//     return {
+//         id: ++habitIdCounter,
+//         name: name,
+//         frequency: frequency,
+//         createdAt: new Date().toISOString(),
+//         rename: function (newName) {
+//             this.name = newName;
+//         },
+//     };
+// }
+
+// function Habit(name, frequency) {
+//     this.id = ++habitIdCounter;
+//     this.name = name;
+//     this.frequency = frequency;
+//     this.createdAt = new Date().toISOString();
+// }
+
+// Habit.prototype.rename = function rename(newName) {
+//     this.name = newName;
+// };
+
+class LogTracker {
+    #dates = [];
+
+    addLog(date) {
+        if (typeof date != 'string' || date.length != 10) {
+            return null;
+        }
+        this.#dates.push(date);
+        return date;
+    }
+
+    getLogs() {
+        return [...this.#dates];
+    }
+}
+
+class Habit {
+    #name;
+    #frequency;
+    #id;
+    #tracker;
+
+    constructor(name, frequency) {
+        this.#id = Habit.createId();
+        this.name = name;
+        this.frequency = frequency;
+        this.createdAt = new Date().toISOString();
+        this.#tracker = new LogTracker();
+    }
+
+    rename(newName) {
+        this.name = newName;
+    }
+
+    registerCheckIn(date) {
+        const created = this.#tracker.addLog(date);
+        if (!created) {
+            return null;
+        }
+        return {
+            habitId: this.#id,
+            date: created,
+        };
+    }
+
+    get logs() {
+        return this.#tracker.getLogs();
+    }
+
+    get name() {
+        return this.#name;
+    }
+
+    get frequency() {
+        return this.#frequency;
+    }
+
+    get id() {
+        return this.#id;
+    }
+
+    set name(value) {
+        const normalized = value.trim();
+        if (normalized.length < 3) {
+            throw new Error('El nombre del hábito debe de tener al menos 3 caracteres.');
+        }
+        this.#name = normalized;
+    }
+
+    set frequency(value) {
+        const validFrequency = ['daily', 'weekly']; // Invariantes
+        if (!validFrequency.includes(value)) {
+            throw new Error('La frecuencia debe de ser "daily" o "weekly"');
+        }
+        this.#frequency = value;
+    }
+
+    static createId() {
+        return Date.now() + Math.floor(Math.random() * 1000);
+    }
 }
 
 function addHabit(name, frequency) {
@@ -52,9 +143,15 @@ function addHabit(name, frequency) {
         return null;
     }
 
-    const habit = createHabitObject(name.trim(), frequency);
-    habits.push(habit);
-    return habit;
+    try {
+        const habit = new Habit(name.trim(), frequency);
+        habits.push(habit);
+        return habit;
+    } catch (error) {
+        showMessage(error.message, 'error');
+        return null;
+    }
+
 }
 
 function logHabit(habitId, date) {
@@ -65,15 +162,7 @@ function logHabit(habitId, date) {
         return null;
     }
 
-    const logEntry = {
-        habitId: habitId,
-        habitName: habit.name,
-        date: date,
-        timestamp: new Date().toISOString(),
-    };
-
-    logs.push(logEntry);
-    return logEntry;
+    return habit.registerCheckIn(date);
 }
 
 function getStatistics() {
@@ -146,7 +235,7 @@ function renderHabits() {
           <span class="habit-day">${dayLabel}</span>
           ${habits
                     .map((habit) => {
-                        const habitLogs = logs.filter((log) => log.habitId === habit.id);
+                        const habitLogs = habit.getLogs();
                         const isChecked = habitLogs.some((log) => log.date === date);
                         return `<div class="habit-checkbox ${isChecked ? 'checked' : ''}" 
                          data-habit-id="${habit.id}" 
