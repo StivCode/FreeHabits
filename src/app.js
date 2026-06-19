@@ -27,34 +27,34 @@ const motivationalQuotes = [
 
 let dailyQuoteText = getRandomQuote();
 
-// function createHabitObject(name, frequency) {
-//     return {
-//         id: ++habitIdCounter,
-//         name: name,
-//         frequency: frequency,
-//         createdAt: new Date().toISOString(),
-//         rename: function (newName) {
-//             this.name = newName;
-//         },
-//     };
-// }
+class Error {
+    message;
+    stack;
+    name = 'Error';
+}
 
-// function Habit(name, frequency) {
-//     this.id = ++habitIdCounter;
-//     this.name = name;
-//     this.frequency = frequency;
-//     this.createdAt = new Date().toISOString();
-// }
+class DomainError extends Error() {
+    constructor(message, code) {
+        super(message);
+        this.name = 'DomainError';
+        this.code = code;
+    }
+}
 
-// Habit.prototype.rename = function rename(newName) {
-//     this.name = newName;
-// };
+const ERROR_CODES = {
+    INVALID_NAME: 'INVALID_NAME',
+    INVALID_FREQUENCY: 'INVALID_FREQUENCY',
+    DUPLICATE_CHECKIN: 'DUPLICATE_CHECKIN',
+    INVALID_DATE: 'INVALID_DATE',
+    FUTURE_DATE: 'FUTURE_DATE',
+    INVALID_TARGET_MINUTES: 'INVALID_TARGET_MINUTES',
+};
 
 class LogTracker {
     #dates = [];
 
     addLog(date) {
-        if (typeof date != 'string' || date.length != 10) {
+        if (typeof date !== 'string' || date.length !== 10) {
             return null;
         }
         this.#dates.push(date);
@@ -64,20 +64,164 @@ class LogTracker {
     getLogs() {
         return [...this.#dates];
     }
+
+    removeLog(date) {
+        const index = this.#dates.findIndex((d) => d === date);
+        if (index !== -1) {
+            this.#dates.splice(index, 1);
+            return true;
+        }
+        return false;
+    }
 }
+
+class DailyStreakCalculator {
+    calculate(habit, logs, today) {
+        if (logs.length === 0) {
+            return 0;
+        }
+
+        const sortedLogs = [...logs].sort((a, b) => b.localeCompare(a));
+
+        let streak = 0;
+        let currentDate = new Date(today);
+        currentDate.setHours(0, 0, 0, 0);
+
+        for (let i = 0; i < sortedLogs.length; i++) {
+            const expectedDate = this.#getDateString(currentDate);
+
+            if (sortedLogs[i] === expectedDate) {
+                streak++;
+                currentDate.setDate(currentDate.getDate() - 1);
+            } else {
+                break;
+            }
+        }
+
+        return streak;
+    }
+
+    #getDateString(date) {
+        return date.toISOString().split('T')[0];
+    }
+}
+
+class WeeklyStreakCalculator {
+    calculate(habit, logs, today) {
+        if (logs.length === 0) {
+            return 0;
+        }
+
+        const weeks = this.#groupByWeek(logs);
+        const sortedWeeks = Object.keys(weeks).sort((a, b) => b.localeCompare(a));
+
+        let streak = 0;
+        let expectedWeek = this.#getWeekKey(today);
+
+        for (const week of sortedWeeks) {
+            if (week === expectedWeek) {
+                streak++;
+                expectedWeek = this.#getPreviousWeek(expectedWeek);
+            } else {
+                break;
+            }
+        }
+
+        return streak;
+    }
+
+    #groupByWeek(logs) {
+        const weeks = {};
+        logs.forEach((log) => {
+            const weekKey = this.#getWeekKey(new Date(log + 'T00:00:00'));
+            if (!weeks[weekKey]) {
+                weeks[weekKey] = [];
+            }
+            weeks[weekKey].push(log);
+        });
+        return weeks;
+    }
+
+    #getWeekKey(date) {
+        const year = date.getFullYear();
+        const week = this.#getWeekNumber(date);
+        return `${year}-W${String(week).padStart(2, '0')}`;
+    }
+
+    #getWeekNumber(date) {
+        const d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+        const yearStart = new Date(d.getFullYear(), 0, 1);
+        const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+        return weekNo;
+    }
+
+    #getPreviousWeek(weekKey) {
+        const [year, weekStr] = weekKey.split('-W');
+        let week = parseInt(weekStr);
+        let y = parseInt(year);
+
+        week--;
+        if (week < 1) {
+            y--;
+            week = 52;
+        }
+
+        return `${y}-W${String(week).padStart(2, '0')}`;
+    }
+}
+
+const STREK_CALCULATORS = {
+    daily: new DailyStreakCalculator(),
+    weekly: new WeeklyStreakCalculator(),
+};
 
 class Habit {
     #name;
     #frequency;
     #id;
     #tracker;
+    #createdAt;
 
     constructor(name, frequency) {
         this.#id = Habit.createId();
         this.name = name;
         this.frequency = frequency;
-        this.createdAt = new Date().toISOString();
+        this.#createdAt = new Date().toISOString();
         this.#tracker = new LogTracker();
+    }
+
+    get name() {
+        return this.#name;
+    }
+
+    get createdAt() {
+        return this.#createdAt;
+    }
+
+    set name(value) {
+        const normalized = value.trim();
+        if (normalized.length < 3) {
+            throw new DomainError('El nombre del hábito debe tener al menos 3 caracteres.', ERROR_CODES.INVALID_NAME);
+        }
+        this.#name = normalized;
+    }
+
+    get frequency() {
+        return this.#frequency;
+    }
+
+    set frequency(value) {
+        const validFrequencies = ['daily', 'weekly'];
+        if (!validFrequencies.includes(value)) {
+            throw new DomainError('La frecuencia debe ser "daily" o "weekly".', ERROR_CODES.INVALID_FREQUENCY);
+        }
+        this.#frequency = value;
+    }
+
+    get id() {
+        return this.#id;
     }
 
     rename(newName) {
@@ -90,41 +234,25 @@ class Habit {
             return null;
         }
         return {
-            habitId: this.#id,
+            habitId: this.id,
             date: created,
         };
     }
 
-    get logs() {
+    getLogs() {
         return this.#tracker.getLogs();
     }
 
-    get name() {
-        return this.#name;
+    removeCheckIn(date) {
+        return this.#tracker.removeLog(date);
     }
 
-    get frequency() {
-        return this.#frequency;
-    }
-
-    get id() {
-        return this.#id;
-    }
-
-    set name(value) {
-        const normalized = value.trim();
-        if (normalized.length < 3) {
-            throw new Error('El nombre del hábito debe de tener al menos 3 caracteres.');
+    calculateStreak(today = new Date()) {
+        const calculator = STREK_CALCULATORS[this.#frequency];
+        if (!calculator) {
+            return 0;
         }
-        this.#name = normalized;
-    }
-
-    set frequency(value) {
-        const validFrequency = ['daily', 'weekly']; // Invariantes
-        if (!validFrequency.includes(value)) {
-            throw new Error('La frecuencia debe de ser "daily" o "weekly"');
-        }
-        this.#frequency = value;
+        return calculator.calculate(this, this.getLogs(), today);
     }
 
     toDisplayString() {
@@ -134,11 +262,18 @@ class Habit {
     static createId() {
         return Date.now() + Math.floor(Math.random() * 1000);
     }
+
+    static daily(name) {
+        return new Habit(name, 'daily');
+    }
+
+    static weekly(name) {
+        return new Habit(name, 'weekly');
+    }
 }
 
 class TimedHabit extends Habit {
     #targetMinutes;
-
     constructor(name, frequency, targetMinutes) {
         super(name, frequency);
         this.targetMinutes = targetMinutes;
@@ -151,14 +286,22 @@ class TimedHabit extends Habit {
     set targetMinutes(value) {
         const minutes = Number(value);
         if (isNaN(minutes) || minutes <= 0) {
-            throw new Error('El objetivo de tiempo debe de ser un número positivo')
+            throw new Error('El Objetivo de tiempo debe de ser un número positivo');
         }
         this.#targetMinutes = minutes;
     }
 
     toDisplayString() {
         const baseString = super.toDisplayString();
-        return `${baseString} ${this.#targetMinutes}`;
+        return `${baseString} ${this.#targetMinutes} `;
+    }
+
+    static daily(name, targetMinutes) {
+        return new TimedHabit(name, 'daily', targetMinutes);
+    }
+
+    static weekly(name, targetMinutes) {
+        return new TimedHabit(name, 'weekly', targetMinutes);
     }
 }
 
@@ -181,7 +324,6 @@ function addHabit(name, frequency) {
         showMessage(error.message, 'error');
         return null;
     }
-
 }
 
 function logHabit(habitId, date) {
@@ -197,15 +339,17 @@ function logHabit(habitId, date) {
 
 function getStatistics() {
     const totalHabits = habits.length;
-    const totalCheckIns = logs.length;
+    let totalCheckIns = 0;
+
+    const habitCounts = {};
+    habits.forEach((habit) => {
+        const logs = habit.getLogs();
+        totalCheckIns += logs.length;
+        habitCounts[habit.name] = logs.length;
+    });
 
     let mostActiveHabit = '-';
-    if (logs.length > 0) {
-        const habitCounts = {};
-        logs.forEach((log) => {
-            habitCounts[log.habitName] = (habitCounts[log.habitName] || 0) + 1;
-        });
-
+    if (totalCheckIns > 0) {
         mostActiveHabit = Object.entries(habitCounts).sort((a, b) => b[1] - a[1])[0][0];
     }
 
@@ -266,7 +410,7 @@ function renderHabits() {
           ${habits
                     .map((habit) => {
                         const habitLogs = habit.getLogs();
-                        const isChecked = habitLogs.some((log) => log.date === date);
+                        const isChecked = habitLogs.includes(date);
                         return `<div class="habit-checkbox ${isChecked ? 'checked' : ''}" 
                          data-habit-id="${habit.id}" 
                          data-date="${date}"></div>`;
@@ -323,9 +467,9 @@ function attachCheckboxListeners() {
 }
 
 function removeLog(habitId, date) {
-    const index = logs.findIndex((log) => log.habitId === habitId && log.date === date);
-    if (index !== -1) {
-        logs.splice(index, 1);
+    const habit = habits.find((h) => h.id === habitId);
+    if (habit) {
+        habit.removeCheckIn(date);
     }
 }
 
@@ -450,7 +594,7 @@ function initApp() {
         const log = logHabit(habitId, date);
         if (log) {
             const habit = habits.find((h) => h.id === habitId);
-            showMessage(`Check-in registrado para ${log.habitName}`, 'success');
+            showMessage(`Check-in registrado para ${habit.name}`, 'success');
             renderHabits();
             closeModal('registerModal');
         }
@@ -460,12 +604,25 @@ function initApp() {
     renderQuote();
 
     console.log('Habit Tracker inicializado');
-    const demoHabit = new Habit('Leer', 'daily');
-    const demoTimedHabit = new TimedHabit('Meditar', 'daily', 20);
-    console.log('Habit normal: ', demoHabit.toDisplayString());
-    console.log('TimedHabit: ', demoTimedHabit.toDisplayString());
-    console.log('instanceof Habit: ', demoTimedHabit instanceof Habit);
-    console.log('intanceof TimedHabit: ', demoTimedHabit instanceof TimedHabit);
+    const demoHabit1 = Habit.daily('Leer');
+    demoHabit1.registerCheckIn('2026-01-10');
+    demoHabit1.registerCheckIn('2026-01-11');
+    demoHabit1.registerCheckIn('2026-01-12');
+
+    const demoHabit2 = Habit.weekly('Ejercicio');
+    demoHabit2.registerCheckIn('2026-01-06');
+    demoHabit2.registerCheckIn('2026-01-13');
+
+    const demoHabit3 = TimedHabit.daily('Meditar', 20);
+    demoHabit3.registerCheckIn('2026-01-10');
+    demoHabit3.registerCheckIn('2026-01-11');
+    demoHabit3.registerCheckIn('2026-01-12');
+
+    console.log('Hábito diario:', demoHabit1.toDisplayString());
+    console.log('Racha diaria:', demoHabit1.calculateStreak(new Date('2026-01-13')));
+    console.log('Hábito semanal:', demoHabit2.toDisplayString());
+    console.log('Racha semanal:', demoHabit2.calculateStreak(new Date('2026-01-13')));
+    console.log('Hábito con tiempo:', demoHabit3.toDisplayString());
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
